@@ -80,6 +80,7 @@ class FitsViewer(QtGui.QMainWindow):
         self.dc = get_canvas_types()
 
         self.set_medfilt(0)
+        self.set_c2c(0)
 
         # create the ginga viewer and configure it
         fi = CanvasView(self.logger, render='widget')
@@ -88,6 +89,7 @@ class FitsViewer(QtGui.QMainWindow):
         fi.enable_autozoom('on')
         fi.set_callback('drag-drop', self.drop_file)
         fi.add_callback('cursor-changed', self.cursor_cb)
+        fi.add_callback ('cursor-down', self.click_cb)
         fi.set_bg(0.2, 0.2, 0.2)
         fi.ui_set_active(True)
         self.fitsimage = fi
@@ -133,10 +135,25 @@ class FitsViewer(QtGui.QMainWindow):
         hbox = QtGui.QHBoxLayout()
         hbox.setContentsMargins(QtCore.QMargins(4, 2, 4, 2))
 
-        wsolve = QtGui.QPushButton("Solve Astrometry")
+        wzoomfit = QtGui.QPushButton("Zoom Fit")
+        wzoomfit.clicked.connect(self.zoom_fit)
+
+        wzoomin = QtGui.QPushButton("Z+")
+        wzoomin.clicked.connect(self.zoom_in)
+
+        wzoomout = QtGui.QPushButton("Z-")
+        wzoomout.clicked.connect(self.zoom_out)
+
+        wc2c = QtGui.QCheckBox("Click to Center")
+        wc2c.stateChanged.connect(self.set_c2c)
+        self.wc2c = wc2c
+
+        wsolve = QtGui.QPushButton("Solve")
         wsolve.clicked.connect(self.solve_astrometry)
-        woverlay = QtGui.QPushButton("Overlay Catalog Stars")
+
+        woverlay = QtGui.QPushButton("Overlay Catalog")
         woverlay.clicked.connect(self.overlay_catalog)
+
         wclear = QtGui.QPushButton("Clear Overlays")
         wclear.clicked.connect(self.clear_overlays)
 
@@ -146,10 +163,16 @@ class FitsViewer(QtGui.QMainWindow):
 
         wopen = QtGui.QPushButton("Open File")
         wopen.clicked.connect(self.open_file)
+
         wquit = QtGui.QPushButton("Quit")
         wquit.clicked.connect(self.quit)
 
         hbox.addStretch(1)
+        
+        hbox.addWidget(wzoomfit, stretch=0)
+        hbox.addWidget(wzoomin, stretch=0)
+        hbox.addWidget(wzoomout, stretch=0)
+        hbox.addWidget(wc2c, stretch=0)
         hbox.addWidget(wsolve, stretch=0)
         hbox.addWidget(woverlay, stretch=0)
         hbox.addWidget(wclear, stretch=0)
@@ -169,6 +192,24 @@ class FitsViewer(QtGui.QMainWindow):
         self.medfilt = {0: False, 2: True}[kind]
         self.medfilt_str = {False: '', True: '(filtered)'}[self.medfilt]
         log.info(f"Setting median filter flag to {self.medfilt}")
+
+    def set_c2c(self, kind):
+        self.c2c = {0: False, 2: True}[kind]
+        self.c2c_str = {False: '', True: '(filtered)'}[self.medfilt]
+        log.info(f"Setting click to center to {self.medfilt}")
+
+    def zoom_fit(self):
+        self.fitsimage.zoom_fit()
+
+    def zoom_in(self):
+        self.fitsimage.zoom_in()
+
+    def zoom_out(self):
+        self.fitsimage.zoom_out()
+
+    def click_cb(self, viewer, button, data_x, data_y):
+        if self.c2c is True:
+            self.fitsimage.set_pan(data_x, data_y)
 
     def cursor_cb(self, viewer, button, data_x, data_y):
         """This gets called when the data position relative to the cursor
@@ -206,10 +247,12 @@ class FitsViewer(QtGui.QMainWindow):
         self.readout.setText(text)
 
     def load_file(self, filepath):
+        log.info(f'Loading image: {filepath}')
         self.clear_overlays()
         image = AstroImage.AstroImage(logger=self.logger)
         image.load_file(filepath)
         if self.medfilt is True:
+            log.info('Median filtering image for display')
             data = image.get_data()
             filtered_image = medfilt(data, (3,3))
             image.set_data(filtered_image)
@@ -260,12 +303,12 @@ class FitsViewer(QtGui.QMainWindow):
         FoV = ((max(footprint[:,0])-min(footprint[:,0])),
                 max(footprint[:,1])-min(footprint[:,1]))
 
-        catalog_names = ['UCAC5', 'Gaia DR2', '2MASS PSC']
-        catalog_IDs = ['I/340', 'I/345', 'II/246']
-        colors = ['lightblue', 'green', 'red']
-        radii = [10, 12, 14]
-        RAcolname = ['RAJ2000', 'RA_ICRS', 'RAJ2000']
-        DEcolname = ['DEJ2000', 'DE_ICRS', 'DEJ2000']
+        catalog_names = ['Gaia DR2', 'UCAC5', '2MASS PSC']
+        catalog_IDs = ['I/345', 'I/340', 'II/246']
+        colors = ['green', 'lightblue', 'red']
+        radii = [10, 13, 16]
+        RAcolname = ['RA_ICRS', 'RAJ2000', 'RAJ2000']
+        DEcolname = ['DE_ICRS', 'DEJ2000', 'DEJ2000']
 
         result = Vizier.query_region(center,
                                      width=1.05*FoV[0]*u.deg,
@@ -273,8 +316,9 @@ class FitsViewer(QtGui.QMainWindow):
                                      catalog=catalog_IDs)
 
         # Overlay Stars
-        for i,name in enumerate(catalog_names):
-            log.info(f'Retrieved {len(result[i])} stars from {name} catalog')
+        for i,name in enumerate(catalog_names[:1]):
+            log.info(f'Retrieved {len(result[i])} stars from {name} catalog '\
+                     f'and marking in {colors[i]}')
             for j,star in enumerate(result[i]):
                 c = SkyCoord(star[RAcolname[i]]*u.deg, star[DEcolname[i]]*u.deg)
                 c_str = c.to_string('hmsdms', sep=':', precision=1)
@@ -283,6 +327,8 @@ class FitsViewer(QtGui.QMainWindow):
                 if (x > 0) and (x <= nx) and (y > 0) and (y <= ny):
                     log.debug(f"Plotting {name}: {c_str} {x:.1f} {y:.1f}")
                     self.canvas.add(self.dc.Circle(x, y, radius=radii[i],
+                                    alpha=0.7, color=colors[i]))
+                    self.canvas.add(self.dc.Circle(x, y, radius=0.5,
                                     alpha=0.7, color=colors[i]))
 
 
