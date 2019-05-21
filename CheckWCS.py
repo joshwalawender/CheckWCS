@@ -89,7 +89,7 @@ class FitsViewer(QtGui.QMainWindow):
         fi.enable_autozoom('on')
         fi.set_callback('drag-drop', self.drop_file)
         fi.add_callback('cursor-changed', self.cursor_cb)
-        fi.add_callback ('cursor-down', self.click_cb)
+        fi.add_callback('cursor-down', self.click_cb)
         fi.set_bg(0.2, 0.2, 0.2)
         fi.ui_set_active(True)
         self.fitsimage = fi
@@ -120,6 +120,7 @@ class FitsViewer(QtGui.QMainWindow):
         w = fi.get_widget()
         w.resize(1000, 1000)
 
+        # ---------------------------------------------------------------------
         # add scrollbar interface around this viewer
         si = ScrolledView(fi)
 
@@ -128,10 +129,14 @@ class FitsViewer(QtGui.QMainWindow):
         vbox.setSpacing(1)
         vbox.addWidget(si, stretch=1)
 
+        # ---------------------------------------------------------------------
+        # add live cursor readout
         self.readout = QtGui.QLabel("")
         vbox.addWidget(self.readout, stretch=0,
                        alignment=QtCore.Qt.AlignCenter)
 
+        # ---------------------------------------------------------------------
+        # add row of interface widgets
         hbox = QtGui.QHBoxLayout()
         hbox.setContentsMargins(QtCore.QMargins(4, 2, 4, 2))
 
@@ -180,6 +185,7 @@ class FitsViewer(QtGui.QMainWindow):
         hbox.addWidget(wopen, stretch=0)
         hbox.addWidget(wquit, stretch=0)
 
+        # ---------------------------------------------------------------------
         hw = QtGui.QWidget()
         hw.setLayout(hbox)
         vbox.addWidget(hw, stretch=0)
