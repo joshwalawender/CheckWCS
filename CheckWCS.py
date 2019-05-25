@@ -18,12 +18,9 @@ from astropy import units as u
 from astropy.io import fits
 from astropy.coordinates import SkyCoord, Angle
 from astropy.wcs import WCS, FITSFixedWarning
-from astropy.visualization import MinMaxInterval, PercentileInterval, ImageNormalize
 from astroquery.vizier import Vizier
 
 from scipy.signal import medfilt
-
-Vizier.ROW_LIMIT = 1000
 
 
 ##-------------------------------------------------------------------------
@@ -140,7 +137,7 @@ class FitsViewer(QtGui.QMainWindow):
         hbox = QtGui.QHBoxLayout()
         hbox.setContentsMargins(QtCore.QMargins(4, 2, 4, 2))
 
-        wzoomfit = QtGui.QPushButton("Zoom Fit")
+        wzoomfit = QtGui.QPushButton("Z0")
         wzoomfit.clicked.connect(self.zoom_fit)
 
         wzoomin = QtGui.QPushButton("Z+")
@@ -178,11 +175,11 @@ class FitsViewer(QtGui.QMainWindow):
         hbox.addWidget(wzoomin, stretch=0)
         hbox.addWidget(wzoomout, stretch=0)
         hbox.addWidget(wc2c, stretch=0)
-        hbox.addWidget(wsolve, stretch=0)
+#         hbox.addWidget(wsolve, stretch=0)
         hbox.addWidget(woverlay, stretch=0)
         hbox.addWidget(wclear, stretch=0)
         hbox.addWidget(wmedfilt, stretch=0)
-        hbox.addWidget(wopen, stretch=0)
+#         hbox.addWidget(wopen, stretch=0)
         hbox.addWidget(wquit, stretch=0)
 
         # ---------------------------------------------------------------------
@@ -212,6 +209,9 @@ class FitsViewer(QtGui.QMainWindow):
 
     def zoom_out(self):
         self.fitsimage.zoom_out()
+
+    def cut_levels(self, z1, z2):
+        self.fitsimage.cut_levels(lo_val, hi_val)
 
     def click_cb(self, viewer, button, data_x, data_y):
         if self.c2c is True:
@@ -291,7 +291,8 @@ class FitsViewer(QtGui.QMainWindow):
     def solve_astrometry(self):
         log.warning('Astrometry solver not yet implemented.')
 
-    def overlay_catalog(self):
+    def overlay_catalog(self, magstep=0.5, row_limit=1000):
+        Vizier.ROW_LIMIT = row_limit
         # Get WCS Info From Image Header
         h = self.image.get_header()
         wcs = WCS(h)
@@ -315,17 +316,34 @@ class FitsViewer(QtGui.QMainWindow):
         radii = [10, 13, 16]
         RAcolname = ['RA_ICRS', 'RAJ2000', 'RAJ2000']
         DEcolname = ['DE_ICRS', 'DEJ2000', 'DEJ2000']
+        magname = ['Gmag', None, None]
 
         result = Vizier.query_region(center,
                                      width=1.05*FoV[0]*u.deg,
                                      height=1.05*FoV[1]*u.deg,
                                      catalog=catalog_IDs)
-
         # Overlay Stars
         for i,name in enumerate(catalog_names[:1]):
-            log.info(f'Retrieved {len(result[i])} stars from {name} catalog '\
-                     f'and marking in {colors[i]}')
-            for j,star in enumerate(result[i]):
+            stars = result.values()[i]
+
+            maxmag = max(stars[magname[i]])
+            nextmag = np.ceil(maxmag/magstep)*magstep-magstep
+            if magname[i] is not None:
+                while len(stars) == Vizier.ROW_LIMIT and nextmag > 10:
+                    log.warning(f'Retrieved {len(stars)} stars which is at '
+                                f'the limit of {row_limit} for this query.')
+                    nextmag -= magstep
+                    log.info(f'Reducing {magname[i]} limit to {nextmag:.2f}')
+                    vquery = Vizier(column_filters={magname[i]: f"<{nextmag:.1f}"},
+                                    row_limit=Vizier.ROW_LIMIT)
+                    stars = vquery.query_region(center,
+                                                width=1.05*FoV[0]*u.deg,
+                                                height=1.05*FoV[1]*u.deg,
+                                                catalog=catalog_IDs[i])[0]
+            log.info(f'Retrieved {len(stars)} stars from {name} '
+                     f'catalog and marking in {colors[i]}')
+
+            for j,star in enumerate(stars):
                 c = SkyCoord(star[RAcolname[i]]*u.deg, star[DEcolname[i]]*u.deg)
                 c_str = c.to_string('hmsdms', sep=':', precision=1)
                 x, y = wcs.all_world2pix(c.ra.deg, c.dec.deg, 1)
@@ -336,6 +354,7 @@ class FitsViewer(QtGui.QMainWindow):
                                     alpha=0.7, color=colors[i]))
                     self.canvas.add(self.dc.Circle(x, y, radius=0.5,
                                     alpha=0.7, color=colors[i]))
+            log.info('  Done.')
 
 
 
